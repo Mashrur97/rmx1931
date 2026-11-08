@@ -1,15 +1,14 @@
 #!/system/bin/sh
 # Phase 2 benchmark: RIFE (rife-ncnn-vulkan, Android arm64) on the phone, as root.
 # Needs: /data/local/tmp/rife/{rife-ncnn-vulkan,rife-v4/} and ffmpeg at /data/adb/oppocam/ffmpeg.
-# usage: sh rifebench.sh [clip] [start_sec] [dur_sec]
-# Default clip/section = the fan clip slice used for the minterpolate comparison.
+# usage: sh rifebench.sh <clip> [start_sec] [dur_sec]   (default: 4 s from 16 s, the slow middle of a 960/480 clip)
 B=/data/local/tmp/rife
 FF=/data/adb/oppocam/ffmpeg
-clip="${1:-/sdcard/DCIM/Camera/VID20261107210737.mp4}"; ss="${2:-10}"; dur="${3:-4}"
+clip="$1"; ss="${2:-16}"; dur="${3:-4}"
 W=/data/local/tmp/rb
 R="$B/rife-ncnn-vulkan"
 [ -x "$R" ] || chmod 755 "$R"
-[ -f "$clip" ] || { echo "clip not found: $clip"; exit 1; }
+[ -n "$clip" ] && [ -f "$clip" ] || { echo "usage: sh rifebench.sh /sdcard/DCIM/Camera/VIDxxxx.mp4"; exit 1; }
 rm -rf "$W"; mkdir -p "$W/in"
 F=$((dur*30))
 echo "== extracting $F frames from $clip at ${ss}s"

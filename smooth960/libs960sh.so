@@ -1,13 +1,13 @@
 #!/system/bin/sh
 # OppoCamera real-960, camera side. Runs inside the camera's sandbox, so it does no video work itself:
 # it hands the job to the root helper s960d.sh (started by the oppocam module) and relays progress.
-# Called by com.b.S960:  sh libs960sh.so <src.mp4> <out.mp4> <factor> <workdir>
-src="$1"; out="$2"; f="${3:-2}"; W="$4"
+# Called by com.b.S960:  sh libs960sh.so <src.mp4> <out.mp4> <factor> <workdir> ["key=value ..." options]
+src="$1"; out="$2"; f="${3:-2}"; W="$4"; opt="$5"
 [ -n "$src" ] && [ -n "$out" ] && [ -n "$W" ] || { echo "bad args"; exit 2; }
 rm -rf "$W"; mkdir -p "$W" || exit 3
 # files the helper writes INTO (created here so they stay readable by the camera)
 : > "$out"; : > "$W/progress"; : > "$W/status"
-printf '%s\n%s\n%s\n' "$src" "$out" "$f" > "$W/job.tmp" && mv "$W/job.tmp" "$W/job"
+printf '%s\n%s\n%s\n%s\n' "$src" "$out" "$f" "$opt" > "$W/job.tmp" && mv "$W/job.tmp" "$W/job"
 echo "PROGRESS 0 1"
 waited=0; ticks=0
 while :; do

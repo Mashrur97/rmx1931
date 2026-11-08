@@ -1,0 +1,12 @@
+# binaries and OPPO-derived files stay out of git (backups live on the PC)
+*.apk
+*.zip
+*.img
+*.dex
+*.mp4
+*.jar
+*.pk8
+payload/
+s960/ffmpeg
+**/ffmpeg
+**/ffprobe

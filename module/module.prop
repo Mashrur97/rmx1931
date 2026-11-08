@@ -1,0 +1,6 @@
+id=oppocam_samurai
+name=OppoCamera (stock RealmeUI F.14) for Android 17
+version=v0.10
+versionCode=13
+author=Mashrur (with Claude)
+description=Stock Realme X2 Pro camera on Infinity-X A17. Photo, 16MP front, 64MP, night, portrait, filters, pano, macro, slow-mo, video with EIS and Ultra Steady work. New: Smooth 960 (480 fps + motion interpolation instead of repeated frames), thumbnail opens OnePlus Gallery. Known issues: occasional HAL crash on mode switch, beauty face-shaping.

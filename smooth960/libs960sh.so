@@ -1,0 +1,28 @@
+#!/system/bin/sh
+# OppoCamera real-960, camera side. Runs inside the camera's sandbox, so it does no video work itself:
+# it hands the job to the root helper s960d.sh (started by the oppocam module) and relays progress.
+# Called by com.b.S960:  sh libs960sh.so <src.mp4> <out.mp4> <factor> <workdir>
+src="$1"; out="$2"; f="${3:-2}"; W="$4"
+[ -n "$src" ] && [ -n "$out" ] && [ -n "$W" ] || { echo "bad args"; exit 2; }
+rm -rf "$W"; mkdir -p "$W" || exit 3
+# files the helper writes INTO (created here so they stay readable by the camera)
+: > "$out"; : > "$W/progress"; : > "$W/status"
+printf '%s\n%s\n%s\n' "$src" "$out" "$f" > "$W/job.tmp" && mv "$W/job.tmp" "$W/job"
+echo "PROGRESS 0 1"
+waited=0; ticks=0
+while :; do
+  s=$(cat "$W/status" 2>/dev/null)
+  case "$s" in
+    OK*)   echo "PROGRESS 1 1"; exit 0 ;;
+    FAIL*camera\ left*) echo "SAVED ${s##* }"; echo "helper: $s"; exit 1 ;;
+    FAIL*) echo "helper: $s"; exit 1 ;;
+  esac
+  [ -f "$W/cancel" ] && { echo "cancelled"; exit 9; }
+  p=$(cat "$W/progress" 2>/dev/null); [ -n "$p" ] && echo "PROGRESS $p"
+  if [ -f "$W/job" ]; then
+    waited=$((waited+1))
+    [ $waited -gt 20 ] && { rm -f "$W/job"; echo "s960 helper is not running (job not picked up in 10 s)"; exit 4; }
+  fi
+  ticks=$((ticks+1)); [ $ticks -gt 1800 ] && { echo "timeout"; exit 5; }
+  sleep 0.5
+done

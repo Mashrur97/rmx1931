@@ -1,0 +1,63 @@
+name: rife-android
+
+# Builds nihui/rife-ncnn-vulkan for Android arm64 (bionic, Vulkan) and uploads the binary + models.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/rife-android.yml'
+      - 'rife-android/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch rife-ncnn-vulkan (with ncnn + glslang submodules)
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules https://github.com/nihui/rife-ncnn-vulkan rife
+          echo "RIFE_SHA=$(git -C rife rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "NCNN_SHA=$(git -C rife/src/ncnn rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: rife-android-${{ env.NCNN_SHA }}
+          max-size: 500M
+
+      - name: Configure (NDK, arm64-v8a, android-29, static libc++)
+        run: |
+          NDK=$ANDROID_NDK_LATEST_HOME
+          SYS=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          echo "NDK: $NDK"
+          cmake -S rife/src -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
+            -DVulkan_INCLUDE_DIR=$SYS/usr/include \
+            -DVulkan_LIBRARY=$SYS/usr/lib/aarch64-linux-android/29/libvulkan.so \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-openmp" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Package
+        run: |
+          NDK=$ANDROID_NDK_LATEST_HOME
+          mkdir -p out
+          cp build/rife-ncnn-vulkan out/
+          $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip out/rife-ncnn-vulkan
+          cp -r rife/models/rife-v4 out/
+          ls rife/models > out/available-models.txt
+          file out/rife-ncnn-vulkan | tee out/BUILD_INFO.txt
+          echo "rife-ncnn-vulkan $RIFE_SHA, ncnn $NCNN_SHA" >> out/BUILD_INFO.txt
+          echo "NEEDED:" >> out/BUILD_INFO.txt
+          $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d out/rife-ncnn-vulkan | grep NEEDED >> out/BUILD_INFO.txt
+          cat out/BUILD_INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rife-ncnn-vulkan-android-arm64
+          path: out/

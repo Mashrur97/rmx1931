@@ -19,13 +19,22 @@ note() {
   r=$(/system/bin/cmd notification post -t "Real 960 slow-mo" s960 "$1" 2>&1 < /dev/null)
   case "$r" in *posting*) ;; *) log "notification failed: $(echo "$r" | head -2 | tr '\n' ' ')" ;; esac
 }
-# is the camera still the resumed (front) activity? the camera silently drops our result once it's
-# backgrounded, so the helper has to notice by itself. S960_CAMFRONT overrides for testing.
+# is the camera still on screen? the camera silently drops our result once it's backgrounded, so the
+# helper has to notice by itself. Reads the camera process's oom_score_adj (0 = top app, 50+ = not on
+# screen): a plain file read, unlike dumpsys, which timed out with all 8 cores busy (v0.11 step B).
+# The pause-viewfinder page runs in the camera process, so the job says pause=1 instead.
+# S960_CAMFRONT overrides for testing.
 cam_front() {
   [ -n "$S960_CAMFRONT" ] && { [ -f "$S960_CAMFRONT" ]; return; }
-  # the camera's own settings / Smooth 960 progress page count as "left": the viewfinder is closed
-  l=$(dumpsys activity activities 2>/dev/null | grep -m1 -E 'ResumedActivity')
-  case "$l" in *SettingActivity*) return 1 ;; *com.oppo.camera*) return 0 ;; *) return 1 ;; esac
+  pid=$(pidof com.oppo.camera 2>/dev/null) || return 1
+  adj=$(cat /proc/${pid%% *}/oom_score_adj 2>/dev/null)
+  [ "$adj" = 0 ]
+}
+# camera gone? only after two misses in a row, so one odd reading doesn't move the job
+miss=0
+cam_gone() {
+  if cam_front; then miss=0; return 1; fi
+  miss=$((miss+1)); [ $miss -ge 2 ]
 }
 # where the result goes when the camera left mid-way: DCIM/Camera/Slow<date>.mp4 next to the source
 standalone_path() { d=$(dirname "$1"); b=$(basename "$1"); n=$(echo "$b" | sed 's/^VID/Slow/'); [ "$n" = "$b" ] && n="Slow_$b"; echo "$d/$n"; }
@@ -34,7 +43,7 @@ real() { case "$1" in /storage/emulated/0/*) echo "/data/media/0/${1#/storage/em
 
 # job options: "cores=6 priority=normal quality=balanced denoise=off bitrate=standard deflicker=0"
 opts() {
-  N=6; CRF=18; NICE=""; PRE=""; MI="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+  N=6; CRF=18; NICE=""; PRE=""; PAUSE=""; MI="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
   for kv in $1; do
     v=${kv#*=}
     case "$kv" in
@@ -47,6 +56,7 @@ opts() {
       bitrate=small) CRF=23 ;;
       bitrate=high) CRF=14 ;;
       deflicker=1) PRE="${PRE}deflicker=size=5:mode=pm," ;;
+      pause=1) PAUSE=1 ;;
     esac
   done
   ENC="-c:v libx264 -crf $CRF -preset veryfast -pix_fmt yuv420p -threads 2 -an"
@@ -84,12 +94,13 @@ job() {
   pids="$pids $!"
   nice -n 15 $FF -hide_banner -loglevel error -nostdin -ss $((H+M)) -i "$src" -vf "${PRE}setpts=PTS/$S" -r 30 $ENC -y "$W/t.mp4" > "$W/et.txt" 2>&1 &
   pids="$pids $!"
-  tick=0
-  if [ -f "$Q/cancel" ] || ! cam_front; then alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."; fi
+  tick=0; miss=0
+  if [ -n "$PAUSE" ]; then alone=1; log "viewfinder paused - finishing in the background"
+  elif [ -f "$Q/cancel" ] || ! cam_front; then alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."; fi
   while :; do
     if [ -z "$alone" ]; then
       tick=$((tick+1))
-      if [ -f "$Q/cancel" ] || { [ $((tick%2)) -eq 0 ] && ! cam_front; }; then
+      if [ -f "$Q/cancel" ] || { [ $((tick%2)) -eq 0 ] && cam_gone; }; then
         alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."
       fi
     fi
@@ -103,13 +114,17 @@ job() {
     [ $run -eq 0 ] && break
     sleep 1
   done
+  echo "$TOTAL $TOTAL" > "$Q/progress"
   wait
   k=0; while [ $k -lt $CH ]; do [ -s "$W/c$k.mp4" ] || { log "chunk $k failed"; cat "$W/e$k.txt"; return 1; }; k=$((k+1)); done
   [ -s "$W/h.mp4" ] || { log "head failed"; cat "$W/eh.txt"; return 1; }
   echo "file '$W/h.mp4'" > "$W/all.txt"; cat "$W/mid.txt" >> "$W/all.txt"
   [ -s "$W/t.mp4" ] && echo "file '$W/t.mp4'" >> "$W/all.txt"
   $FF -hide_banner -loglevel error -nostdin -f concat -safe 0 -i "$W/all.txt" -c copy -movflags +faststart -y "$W/out.mp4" || return 1
-  { [ -f "$Q/cancel" ] || ! cam_front; } && { alone=1; rm -f "$Q/cancel"; }
+  if [ -z "$alone" ]; then
+    if [ -f "$Q/cancel" ]; then alone=1; rm -f "$Q/cancel"
+    elif ! cam_front; then sleep 1; cam_front || alone=1; fi
+  fi
   if [ -z "$alone" ]; then
     cat "$W/out.mp4" > "$out" || return 1     # write INTO the camera's file: keeps its owner/label
     log "done: $F frames -> $TOTAL, $(stat -c %s "$out") bytes"

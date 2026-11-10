@@ -54,6 +54,7 @@ opts() {
       priority=low) NICE="nice -n 10" ;;
       quality=fast) MI="mi_mode=mci:mc_mode=obmc:me_mode=bilat:vsbmc=0" ;;
       quality=best|quality=balanced) MI=$MIBEST ;;
+      quality=blend) MI="mi_mode=blend" ;;    # plain 50/50 frame blending (OnePlus-style quick 960)
       denoise=light) PRE="${PRE}hqdn3d=3:2:5:4," ;;
       denoise=medium) PRE="${PRE}hqdn3d=6:4.5:9:7," ;;
       bitrate=small) CRF=23 ;;

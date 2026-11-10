@@ -6,10 +6,13 @@
 FF=${S960_FF:-/data/adb/oppocam/ffmpeg}
 Q=${S960_Q:-/data/data/com.oppo.camera/cache/s960}
 W=${S960_W:-/data/adb/oppocam/s960work}
-# defaults; each job can override them (line 4 of the job file, from the camera's Smooth 960 settings)
+# defaults; each job can override them (line 4 of the job file, from the camera's Mods page).
+# Nov 10 phone benchmark (720p 120 -> 238 frames, screen off): 2 cores 54s, 4 44s, 6 35s, 8 34s;
+# at 8: fast 25s, best 33s, balanced 34s -> 6 cores, "best" by default, balanced == best.
 N=6
 CRF=18
-MI="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+MIBEST="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:mb_size=8"
+MI=$MIBEST
 PIDF=$W.pid
 echo $$ > "$PIDF"
 log() { echo "$(date '+%H:%M:%S') $*"; }
@@ -43,14 +46,14 @@ real() { case "$1" in /storage/emulated/0/*) echo "/data/media/0/${1#/storage/em
 
 # job options: "cores=6 priority=normal quality=balanced denoise=off bitrate=standard deflicker=0"
 opts() {
-  N=6; CRF=18; NICE=""; PRE=""; PAUSE=""; MI="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+  N=6; CRF=18; NICE=""; PRE=""; PAUSE=""; MI=$MIBEST
   for kv in $1; do
     v=${kv#*=}
     case "$kv" in
       cores=[1-8]) N=$v ;;
       priority=low) NICE="nice -n 10" ;;
       quality=fast) MI="mi_mode=mci:mc_mode=obmc:me_mode=bilat:vsbmc=0" ;;
-      quality=best) MI="mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:mb_size=8" ;;
+      quality=best|quality=balanced) MI=$MIBEST ;;
       denoise=light) PRE="${PRE}hqdn3d=3:2:5:4," ;;
       denoise=medium) PRE="${PRE}hqdn3d=6:4.5:9:7," ;;
       bitrate=small) CRF=23 ;;
@@ -62,6 +65,13 @@ opts() {
   ENC="-c:v libx264 -crf $CRF -preset veryfast -pix_fmt yuv420p -threads 2 -an"
 }
 
+# user is elsewhere: drop the running jobs to low priority (once)
+lower() {
+  [ -n "$lowp" ] && return; lowp=1
+  for p in $pids; do renice -n 10 -p $p >/dev/null 2>&1; done
+  log "user left - lower priority"
+}
+
 job() {
   src=$(real "$1"); out="$2"; f="$3"; pids=""; alone=""
   opts "$4"
@@ -70,6 +80,7 @@ job() {
   H=$((32/f)); M=$((8/f)); S=$((32/f)); [ $H -lt 1 ] && H=1; [ $M -lt 1 ] && M=1
   rm -rf "$W"; mkdir -p "$W"
   [ -f "$src" ] || { log "no source $src"; return 1; }
+  echo "0 0 prep" > "$Q/progress"
   F=$((M*30))
   $FF -hide_banner -loglevel error -nostdin -ss $H -t $M -i "$src" -an -vf "${PRE}setpts=N/(30*TB)" -r 30 \
     -frames:v $F -c:v libx264 -preset ultrafast -crf 8 -y "$W/cut.mp4" > "$W/ec.txt" 2>&1 || { cat "$W/ec.txt"; return 1; }
@@ -94,15 +105,18 @@ job() {
   pids="$pids $!"
   nice -n 15 $FF -hide_banner -loglevel error -nostdin -ss $((H+M)) -i "$src" -vf "${PRE}setpts=PTS/$S" -r 30 $ENC -y "$W/t.mp4" > "$W/et.txt" 2>&1 &
   pids="$pids $!"
-  tick=0; miss=0
+  tick=0; miss=0; lowp=""
   if [ -n "$PAUSE" ]; then alone=1; log "viewfinder paused - finishing in the background"
-  elif [ -f "$Q/cancel" ] || ! cam_front; then alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."; fi
+  elif [ -f "$Q/cancel" ] || ! cam_front; then alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."; lower; fi
   while :; do
+    tick=$((tick+1))
     if [ -z "$alone" ]; then
-      tick=$((tick+1))
       if [ -f "$Q/cancel" ] || { [ $((tick%2)) -eq 0 ] && cam_gone; }; then
         alone=1; rm -f "$Q/cancel"; log "camera left - finishing in the background"; note "Smoothing in the background..."
+        lower
       fi
+    elif [ -z "$lowp" ] && [ $((tick%2)) -eq 0 ] && cam_gone; then
+      lower    # pause page left ("Continue in background" / home): keep the phone smooth
     fi
     [ -n "$alone" ] && [ $TOTAL -gt 0 ] && note "Smoothing in the background... $((100*d/TOTAL))%"
     d=0; run=0; k=0
@@ -110,11 +124,11 @@ job() {
       x=$(grep '^frame=' "$W/p$k.txt" 2>/dev/null | tail -1 | cut -d= -f2); d=$((d+${x:-0}))
       grep -q '^progress=end' "$W/p$k.txt" 2>/dev/null || run=$((run+1)); k=$((k+1))
     done
-    echo "$d $TOTAL" > "$Q/progress"
+    if [ $d -gt 0 ]; then echo "$d $TOTAL frames" > "$Q/progress"; else echo "0 $TOTAL prep" > "$Q/progress"; fi
     [ $run -eq 0 ] && break
     sleep 1
   done
-  echo "$TOTAL $TOTAL" > "$Q/progress"
+  echo "$TOTAL $TOTAL finish" > "$Q/progress"
   wait
   k=0; while [ $k -lt $CH ]; do [ -s "$W/c$k.mp4" ] || { log "chunk $k failed"; cat "$W/e$k.txt"; return 1; }; k=$((k+1)); done
   [ -s "$W/h.mp4" ] || { log "head failed"; cat "$W/eh.txt"; return 1; }

@@ -89,7 +89,8 @@ if on csrv; then
     chmod 755 $C/cameraserver; chown 0:2000 $C/cameraserver; chcon "$(ctx $O)" $C/cameraserver
     chcon "$(ctx /system/bin)" $C
     mount -t overlay oppocam -o "lowerdir=$C:/system/bin" /system/bin && echo "mounted /system/bin ($(ctx $O))" || echo "FAILED mount /system/bin"
-  else echo "cameraserver md5 mismatch - skipped (ROM updated?)"; fi
+  elif grep -q "tolerated for multi-frame" $O 2>/dev/null; then echo "cameraserver: ROM already has the multi-frame timestamp fix - patch not needed"
+  else echo "cameraserver: unknown build and no ROM fix found - not patched (photo mode may hang)"; fi
 fi
 
 # (step "pub" removed in v0.3: ROM already lists the camera libs as public)

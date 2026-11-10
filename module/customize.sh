@@ -1,5 +1,5 @@
 SKIPUNZIP=0
-# OppoCamera (stock RealmeUI F.14) for Realme X2 Pro on Android 17 - all-in-one installer v0.10
+# OppoCamera (stock RealmeUI F.14) for Realme X2 Pro on Android 17 - all-in-one installer v0.11
 DEV="$(getprop ro.product.vendor.device)$(getprop ro.product.device)$(getprop ro.build.product)"
 case "$DEV" in
   *RMX1931*|*samurai*) ui_print "- Device OK: $DEV" ;;
@@ -34,6 +34,8 @@ if [ -f "$MODPATH/s960/s960d.sh" ]; then
   cp "$MODPATH/s960/s960d.sh" $ST/s960d.sh && chmod 755 $ST/s960d.sh
   rm -rf "$MODPATH/s960"
 fi
+# v0.11: leftovers from the v0.11 test installers (backups of the v0.10 APK and scripts)
+rm -f $ST/OppoCamera.apk.v010 $ST/libs960sh.so.v010 $ST/s960d.sh.v010
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 for f in post-fs-data.sh service.sh uninstall.sh oppocam.sh; do set_perm "$MODPATH/$f" 0 0 0755; done
 set_perm "$MODPATH/csrv/cameraserver" 0 2000 0755

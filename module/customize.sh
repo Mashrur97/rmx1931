@@ -1,5 +1,5 @@
 SKIPUNZIP=0
-# OppoCamera (stock RealmeUI F.14) for Realme X2 Pro on Android 17 - all-in-one installer v0.11
+# OppoCamera (stock RealmeUI F.14) for Realme X2 Pro on Android 17 - all-in-one installer v0.11.2
 DEV="$(getprop ro.product.vendor.device)$(getprop ro.product.device)$(getprop ro.build.product)"
 case "$DEV" in
   *RMX1931*|*samurai*) ui_print "- Device OK: $DEV" ;;
@@ -20,7 +20,8 @@ grep -qw hal $ST/steps || echo "$(cat $ST/steps) hal" > $ST/steps
 rm -f $ST/booting
 ui_print "- Steps: [$(cat $ST/steps)]"
 O=/system/bin/cameraserver
-if [ "$(md5sum $O | cut -d' ' -f1)" = 51cd8d642e628eecc29baa6903b1d04d ]; then
+case "$(md5sum $O | cut -d' ' -f1)" in 51cd8d642e628eecc29baa6903b1d04d|22101b52a2af6ca3e843c02ca9dd8794) CSOK=1 ;; *) CSOK= ;; esac
+if [ -n "$CSOK" ]; then
   ui_print "- cameraserver: known build, timestamp patch will apply"
 elif grep -q "tolerated for multi-frame" $O 2>/dev/null; then
   ui_print "- cameraserver: this ROM already tolerates multi-frame timestamps, no patch needed"
@@ -39,5 +40,6 @@ rm -f $ST/OppoCamera.apk.v010 $ST/libs960sh.so.v010 $ST/s960d.sh.v010
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 for f in post-fs-data.sh service.sh uninstall.sh oppocam.sh; do set_perm "$MODPATH/$f" 0 0 0755; done
 set_perm "$MODPATH/csrv/cameraserver" 0 2000 0755
+set_perm "$MODPATH/csrv/cameraserver_b" 0 2000 0755
 ui_print "- Done. Reboot. Helper: su -c sh /data/adb/modules/oppocam_samurai/oppocam.sh status"
 ui_print "- Bootloop? Hold volume-down during boot (KSU safe mode); failed steps auto-disable next boot"

@@ -1,0 +1,45 @@
+#!/system/bin/sh
+# HDR+ engine test 1 (for the v0.11.2 module): camera APK with Mods > Photo > HDR+ Enhanced.
+# With the toggle on, the Photo shutter also feeds OPPO's RAW frames to Google's HDR+ engine; its JPEG goes to
+# Android/data/com.oppo.camera/files/HDRP (OPPO still saves its own photo). Also: Pause viewfinder is on by default. Logs to tag GCAM.
+# Needs in /data/local/tmp: OppoCamera_@TAG@.apk (same build as this script), and libgcastartup.so unless it is already installed.
+# Reboot afterwards.
+#   sh hdrpe_install.sh          install
+#   sh hdrpe_install.sh undo     back to the release APK, engine library removed (then reboot)
+#   sh hdrpe_install.sh unlock   clear the crash guards (then reopen the camera)
+ST=/data/adb/oppocam
+P=$ST/payload/priv-app/OppoCamera
+T=/data/local/tmp
+F=/data/user/0/com.oppo.camera/files
+if [ "$1" = undo ]; then
+  [ -f $ST/OppoCamera.apk.pregcam ] || { echo "no backup"; exit 1; }
+  cp $ST/OppoCamera.apk.pregcam $P/OppoCamera.apk && chmod 644 $P/OppoCamera.apk
+  chcon u:object_r:system_file:s0 $P/OppoCamera.apk
+  rm -f $P/lib/arm64/libgcastartup.so $F/gcam2a.lock $F/hdrp.lock
+  echo "restored - now reboot"; exit 0
+fi
+if [ "$1" = unlock ]; then
+  rm -f $F/gcam2a.lock $F/hdrp.lock
+  echo "guards cleared - open the camera again"; exit 0
+fi
+SRC=$T/OppoCamera_@TAG@.apk
+[ -f $SRC ] || { echo "missing $SRC - push OppoCamera_@TAG@.apk from the same build"; exit 1; }
+[ "$(md5sum $SRC | cut -c1-12)" = "@MD5@" ] || { echo "$SRC md5 is $(md5sum $SRC | cut -c1-12), expected @MD5@ - the push was corrupted, push it again"; exit 1; }
+[ -d $P/lib/arm64 ] || { echo "module payload not found - flash the v0.11.2 module first"; exit 1; }
+if [ ! -f $P/lib/arm64/libgcastartup.so ]; then
+  [ -f $T/libgcastartup.so ] || { echo "missing $T/libgcastartup.so (push it too - the module update removed it)"; exit 1; }
+  cp $T/libgcastartup.so $P/lib/arm64/libgcastartup.so && chmod 644 $P/lib/arm64/libgcastartup.so
+  chcon u:object_r:system_file:s0 $P/lib/arm64/libgcastartup.so
+  echo "engine library installed"
+fi
+# keep the release APK as the backup
+case "$(md5sum $P/OppoCamera.apk | cut -c1-12)" in
+  3c2e14d65169) cp $P/OppoCamera.apk $ST/OppoCamera.apk.pregcam ;;
+  *) [ -f $ST/OppoCamera.apk.pregcam ] || cp $P/OppoCamera.apk $ST/OppoCamera.apk.pregcam ;;
+esac
+cp $SRC $P/OppoCamera.apk && chmod 644 $P/OppoCamera.apk
+chcon u:object_r:system_file:s0 $P/OppoCamera.apk
+rm -f $F/gcam2a.lock $F/hdrp.lock
+echo "apk md5: $(md5sum $P/OppoCamera.apk | cut -c1-12)  (expect @MD5@)"
+echo "lib md5: $(md5sum $P/lib/arm64/libgcastartup.so | cut -c1-12)  (expect 3783ded600f9)"
+echo "installed - now reboot"

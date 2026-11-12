@@ -1,6 +1,6 @@
 # Rebuild an APK zip, replacing some entries, keeping order/compression of the rest.
 # Stored entries are aligned (4 bytes, .so files 4096) like zipalign -p.
-# usage: rezip.py in.apk out.apk name=file [name=file ...]
+# usage: rezip.py in.apk out.apk name=file [name=file ...]   (names not in the input are added)
 import sys, struct, zlib, zipfile
 src, dst = sys.argv[1], sys.argv[2]
 repl = dict(a.split('=', 1) for a in sys.argv[3:])
@@ -37,6 +37,17 @@ for i in zin.infolist():
                        crc, len(comp), usize, nl, len(extra)) + name + extra + comp
     cd += struct.pack('<IHHHHHHIIIHHHHHII', 0x02014b50, 20, 20, flags, i.compress_type, 0, 0x21,
                       crc, len(comp), usize, nl, 0, 0, 0, 0, 0, off) + name
+    n += 1
+# entries that were not in the input (e.g. a new classes5.dex) are appended, deflated
+have = {i.filename for i in zin.infolist()}
+for nm, fn in repl.items():
+    if nm in have: continue
+    data = open(fn, 'rb').read(); name = nm.encode()
+    crc = zlib.crc32(data) & 0xffffffff
+    c = zlib.compressobj(9, zlib.DEFLATED, -15); comp = c.compress(data) + c.flush()
+    off = len(out)
+    out += struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, 0, 8, 0, 0x21, crc, len(comp), len(data), len(name), 0) + name + comp
+    cd += struct.pack('<IHHHHHHIIIHHHHHII', 0x02014b50, 20, 20, 0, 8, 0, 0x21, crc, len(comp), len(data), len(name), 0, 0, 0, 0, 0, off) + name
     n += 1
 cdo = len(out)
 out += cd + struct.pack('<IHHHHIIH', 0x06054b50, 0, 0, n, n, len(cd), cdo, 0)
